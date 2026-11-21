@@ -3,6 +3,7 @@
 import logging
 import os
 from distutils.command.build_ext import build_ext
+from pathlib import Path
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,9 +40,20 @@ class BuildExt(build_ext):
     def build_extensions(self):
         if self.parallel is None:
             self.parallel = os.cpu_count() or 1
+        if not self.inplace:
+            # Poetry's wheel build directory uses the interpreter cache tag,
+            # which is shared by the regular and free-threaded builds.
+            for extension in self.extensions:
+                output = Path(self.get_ext_fullpath(extension.name))
+                module = extension.name.rsplit(".", 1)[-1]
+                for artifact in output.parent.glob(f"{module}.*"):
+                    if artifact != output and artifact.suffix in {".so", ".pyd"}:
+                        artifact.unlink(missing_ok=True)
         try:
             super().build_extensions()
         except Exception:
+            if os.environ.get("REQUIRE_CYTHON"):
+                raise
             _LOGGER.debug("Failed to build extensions", exc_info=True)
 
 
